@@ -1,11 +1,16 @@
+from typing import Optional
 import re
 import unicodedata
-from bs4 import BeautifulSoup
+
+import bs4 as BeautifulSoup
+import requests
+
+from .utils import headers
 
 # TODO: write better comments
 
 
-def fileSizeStrToInt(size_str):
+def fileSizeStrToInt(size_str: str) -> int:
     """Converts file size given in *iB format to bytes integer"""
 
     unit_dict = {"KiB": (2 ** 10), "MiB": (2 ** 20), "GiB": (2 ** 30), "TiB": (2 ** 40)}
@@ -25,37 +30,59 @@ class Torrent:
     magnet link, file size, number of seeds, number of leeches etc.
     """
 
+    # TODO: type hint html_row, it's a BeautifulSoup object
     def __init__(self, html_row):
-        self.html_row = html_row
-        self.title = self._getTitle()
-        self.seeds, self.leeches = self._getPeers()
+        self._html_row = html_row
         self.upload_date, self.filesize, self.byte_size, self.uploader = (
             self._getFileInfo()
         )
-        self.magnetlink = self._getMagnetLink()
 
-    def __str__(self):
+        # TODO: type hint
+        self._info: Optional[str] = None
+
+    def __str__(self) -> str:
         return "{0}, S: {1}, L: {2}, {3}".format(
             self.title, self.seeds, self.leeches, self.filesize
         )
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return "<Torrent object: {}>".format(self.title)
 
-    def _getTitle(self):
-        return self.html_row.find("a", class_="detLink").string
+    @property
+    def url(self) -> str:
+        return self._html_row.find("a", class_="detLink")["href"]
 
-    def _getMagnetLink(self):
-        tag = self.html_row.find("a", href=(re.compile("magnet")))
+    @property
+    def title(self) -> str:
+        return self._html_row.find("a", class_="detLink").string
+
+    @property
+    def magnetlink(self) -> str:
+        tag = self._html_row.find("a", href=(re.compile("magnet")))
         link = tag.get("href")
         return link
 
-    def _getPeers(self):
-        taglist = self.html_row.find_all("td", align="right")
-        return int(taglist[0].string), int(taglist[1].string)
+    @property
+    def seeds(self) -> int:
+        taglist = self._html_row.find_all("td", align="right")
+        return int(taglist[0].string)
+
+    @property
+    def leeches(self) -> int:
+        taglist = self._html_row.find_all("td", align="right")
+        return int(taglist[1].string)
+
+    # TODO: handle exceptions if request fails
+    @property
+    def info(self) -> str:
+        if self._info is None:
+            request = requests.get(str(self.url), headers=headers())
+            soup = BeautifulSoup.BeautifulSoup(request.text, features="html.parser")
+            self._info = soup.find("div", {"class": "nfo"}).text
+        return self._info
 
     def _getFileInfo(self):
-        text = self.html_row.find("font", class_="detDesc").get_text()
+        text = self._html_row.find("font", class_="detDesc").get_text()
         t = text.split(",")
         uptime = unicodedata.normalize("NFKD", t[0].replace("Uploaded ", "").strip())
         size = unicodedata.normalize("NFKD", t[1].replace("Size ", "").strip())
@@ -66,13 +93,13 @@ class Torrent:
 
 class Torrents:
     """
-    Torrent object, takes query response and parses into 
+    Torrent object, takes query response and parses into
     torrent list or dict. Has methods to select items from
     torrent list.
     """
 
     def __init__(self, html_source):
-        self.html_source = html_source
+        self._html_source = html_source
         self.list = self._createTorrentList()
 
     def __str__(self):
@@ -91,7 +118,7 @@ class Torrents:
         return self.list[index]
 
     def _createTorrentList(self):
-        soup = BeautifulSoup(self.html_source, features="html.parser")
+        soup = BeautifulSoup.BeautifulSoup(self._html_source, features="html.parser")
         if soup.body is None:
             raise ConnectionError("Could not determine torrents (empty html body)")
         rows = soup.body.find_all("tr")

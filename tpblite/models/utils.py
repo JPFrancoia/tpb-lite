@@ -43,6 +43,7 @@ class QueryParser:
         return cls(base_url, segments)
 
     def _sendRequest(self):
+        # TODO: replace with requests module
         req = Request(self.url, headers=headers())
         return urlopen(req).read()
 
